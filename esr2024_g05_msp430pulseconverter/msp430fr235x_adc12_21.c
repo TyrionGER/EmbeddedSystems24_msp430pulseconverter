@@ -70,8 +70,8 @@
 //******************************************************************************
 #include <msp430.h>
 
-#define    High_Threshold    3277                        //~2V
-#define    Low_Threshold     819                         //~0.5V
+#define    High_Threshold    3931                        //~2V
+#define    Low_Threshold     2785                        //~0.5V
 
 unsigned int SlowToggle_Period = 20000-1;
 unsigned int FastToggle_Period = 3000-1;
