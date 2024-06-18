@@ -70,13 +70,15 @@
 //******************************************************************************
 #include <msp430.h>
 
-#define    High_Threshold    3931                        //~2V
-#define    Low_Threshold     2785                        //~0.5V
+#define    High_Threshold    3931                        //~2.4V
+#define    Low_Threshold     2789                        //~1.7V
 
 unsigned int SlowToggle_Period = 20000-1;
 unsigned int FastToggle_Period = 3000-1;
 
 unsigned int adcResult;                     // Temporarily stores the ADC value
+volatile unsigned int low_threshold_crossed = 0;  // State variable
+volatile unsigned int high_threshold_crossed = 0; // State variable for high threshold
 
 int main(void)
 {
@@ -100,7 +102,7 @@ int main(void)
     {
         CSCTL7 &= ~(XT1OFFG | DCOFFG);                  // Clear XT1 and DCO fault flag
         SFRIFG1 &= ~OFIFG;
-    }while (SFRIFG1 & OFIFG);                           // Test oscillator fault flag
+    } while (SFRIFG1 & OFIFG);                          // Test oscillator fault flag
 
     // Configure ADC;
     ADCCTL0 = ADCSHT_2 | ADCON;                         // sample-and-hold 16 ADCCLK cycles, ADCON
@@ -141,7 +143,7 @@ void __attribute__ ((interrupt(ADC_VECTOR))) ADC_ISR (void)
 #error Compiler not supported!
 #endif
 {
-    switch(__even_in_range(ADCIV,ADCIV_ADCIFG))
+    switch(__even_in_range(ADCIV, ADCIV_ADCIFG))
     {
         case ADCIV_NONE:
             break;
@@ -149,22 +151,32 @@ void __attribute__ ((interrupt(ADC_VECTOR))) ADC_ISR (void)
             break;
         case ADCIV_ADCTOVIFG:
             break;
-        case ADCIV_ADCHIIFG:                            // ADCHI; A1> 2V
-            ADCIFG &= ~ADCHIIFG;                        // Clear interrupt flag
-            TB0CTL &= ~MC_1;                            // Turn off Timer
-            TB0CCR0 = FastToggle_Period;                // Set Timer Period for fast LED toggle
-            TB0CTL |= MC_1;
+        case ADCIV_ADCHIIFG:                            // ADCHI; A2 > 2.4V
+            if (low_threshold_crossed) {                // Check if low threshold was crossed
+                ADCIFG &= ~ADCHIIFG;                    // Clear interrupt flag
+                TB0CTL &= ~MC_1;                        // Turn off Timer
+                P1OUT &= ~BIT0;                         // Turn off LED on P1.0
+                low_threshold_crossed = 0;              // Reset the state
+                high_threshold_crossed = 1;             // Set the high threshold state
+            }
             break;
-        case ADCIV_ADCLOIFG:                            // ADCLO; A1 < 0.5V
+        case ADCIV_ADCLOIFG:                            // ADCLO; A2 < 1.7V
             ADCIFG &= ~ADCLOIFG;                        // Clear interrupt flag
-            TB0CTL &= ~MC_1;                            // Turn off Timer
-             TB0CCR0 = SlowToggle_Period;               // Set Timer Period for slow LED toggle
-            TB0CTL |= MC_1;
+            if (!high_threshold_crossed) {              // Only start blinking if high threshold not crossed
+                TB0CTL &= ~MC_1;                        // Turn off Timer
+                TB0CCR0 = SlowToggle_Period;            // Set Timer Period for slow LED toggle
+                TB0CTL |= MC_1;                         // Start Timer
+                low_threshold_crossed = 1;              // Set the low threshold state
+            } else {
+                low_threshold_crossed = 0;              // Reset the state if high threshold already crossed
+            }
             break;
-        case ADCIV_ADCINIFG:                            // ADCIN; 0.5V < A1 < 2V
+        case ADCIV_ADCINIFG:                            // ADCIN; 1.7V < A2 < 2.4V
             ADCIFG &= ~ADCINIFG;                        // Clear interrupt flag
             TB0CTL &= ~MC_1;                            // Turn off Timer
             P1OUT &= ~BIT0;                             // Turn off LED on P1.0
+            low_threshold_crossed = 0;                  // Reset the states
+            high_threshold_crossed = 0;
             break;
         case ADCIV_ADCIFG:
             break;
@@ -183,5 +195,5 @@ void __attribute__ ((interrupt(TIMER0_B0_VECTOR))) TIMER0_B0_ISR (void)
 #error Compiler not supported!
 #endif
 {
-  P1OUT ^= BIT0;                                        // Toggle LED P1.0
+    P1OUT ^= BIT0;                                        // Toggle LED P1.0
 }
