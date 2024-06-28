@@ -1,126 +1,72 @@
 #include <msp430.h>
 
-#define High_Threshold 3931 // ~2.4V
-#define Low_Threshold 2789  // ~1.7V
+#define THRESHOLD_VOLTAGE 3000  // ~2V (2486/4095 * 3.3V reference = 2V)
 
-unsigned int adcResult;              // Temporarily stores the ADC value
-volatile unsigned int pwm_duty_cycle = 0; // PWM duty cycle
-volatile int pwm_direction = 0;           // Direction of PWM change (1 = increase, -1 = decrease)
+void configureGPIO(void) {
+    // Configure LED (P3.0) as output
+    P3DIR |= BIT0;     // Set P3.0 output direction
+    P3OUT &= ~BIT0;    // Initialize P3.0 to off
 
-void configurePWM(void) {
-    // Configure Timer0 for PWM
-    TB0CCR0 = 1023;                      // PWM Period
-    TB0CCTL1 = OUTMOD_7;                 // CCR1 reset/set
-    TB0CCR1 = pwm_duty_cycle;            // CCR1 PWM duty cycle
-    TB0CTL = TBSSEL_1 | MC_1 | TBCLR;    // ACLK, up mode, clear TBR
+    // Configure LED (P3.3) as output
+    P3DIR |= BIT3;     // Set P3.3 output direction
+    P3OUT |= BIT3;     // Turn on LED on P3.3
+
+    // Configure ADC input (P1.2)
+    P1SEL0 |= BIT2;    // Set P1.2 for ADC function
+    P1SEL1 |= BIT2;
 }
 
 void configureADC(void) {
     // Configure ADC
-    ADCCTL0 = ADCSHT_2 | ADCON;                         // sample-and-hold 16 ADCCLK cycles, ADCON
-    ADCCTL1 = ADCSHP | ADCSHS_2 | ADCSSEL_1 | ADCCONSEQ_2; // TB1.1 trigger; ACLK for ADCCLK; Rpt single ch
-    ADCCTL2 = ADCRES_2;                                 // 12-bit conversion results
-    ADCMCTL0 = ADCINCH_2 | ADCSREF_1;                   // Vref 2.5v, A2
-    ADCHI = High_Threshold;                             // Window Comparator Hi-threshold
-    ADCLO = Low_Threshold;                              // Window Comparator Lo-threshold
-    ADCIE |= ADCHIIE | ADCLOIE | ADCINIE;               // Enable ADC conv complete interrupt
+    ADCCTL0 = ADCSHT_2 | ADCON;                     // Sample-and-hold time, ADC on
+    ADCCTL1 = ADCSHP;                               // ADC sample-and-hold pulse mode
+    ADCCTL2 = ADCRES_2;                             // 12-bit conversion results
+    ADCMCTL0 = ADCINCH_2 | ADCSREF_0;               // A2 input channel, Vcc/Vss reference
 }
 
-void configureClocks(void) {
-    // Configure XT1 oscillator
-    P2SEL1 |= BIT6 | BIT7;                              // P2.6~P2.7: crystal pins
-    CSCTL4 = SELA__XT1CLK;                              // Set ACLK = XT1; MCLK = SMCLK = DCO
-    do {
-        CSCTL7 &= ~(XT1OFFG | DCOFFG);                  // Clear XT1 and DCO fault flag
-        SFRIFG1 &= ~OFIFG;
-    } while (SFRIFG1 & OFIFG);                          // Test oscillator fault flag
+void configureTimerB(void) {
+    // Configure Timer B
+    TB0CCTL0 = CCIE;                               // TBCCR0 interrupt enabled
+    TB0CCR0 = 16384 - 1;                           // 16384/32768 = 0.5s, assuming ACLK = 32.768 kHz
+    TB0CTL = TBSSEL__ACLK | MC__UP | TBCLR;        // ACLK, up mode, clear TAR
 }
 
-void configureTimer1(void) {
-    // Configure ADC timer trigger TB1.1
-    TB1CCR0 = 8192 - 1;                                 // PWM Period, reduce the period for faster sampling
-    TB1CCR1 = 4096 - 1;                                 // Duty cycle TB1.1
-    TB1CCTL1 = OUTMOD_3;                                // TB1CCR1 set/reset mode
-    TB1CTL = TBSSEL_1 | MC_1 | TBCLR;                   // ACLK, up mode
-    TB1CCTL0 = CCIE;                                    // Enable Timer1 CCR0 interrupt
-}
-
-void configureReference(void) {
-    // Configure Internal reference voltage
-    PMMCTL0_H = PMMPW_H;                                // Unlock the PMM registers
-    PMMCTL2 |= INTREFEN | REFVSEL_2;                    // Enable internal 2.5V reference
-    __delay_cycles(400);                                // Delay for reference settling
-}
-
-void configureGPIO(void) {
-    P3DIR |= BIT0;                                      // Set P3.0 output direction
-    P3SEL0 |= BIT0;                                     // Select Timer output for P3.0
+#pragma vector = TIMER0_B0_VECTOR
+__interrupt void TIMER0_B0_ISR(void) {
+    // No action needed in ISR for LED toggling
 }
 
 int main(void) {
-    WDTCTL = WDTPW | WDTHOLD;               // Stop WDT
+    WDTCTL = WDTPW | WDTHOLD;                       // Stop WDT
 
     configureGPIO();
-    configureClocks();
-    configureReference();
-    configurePWM();
     configureADC();
-    configureTimer1();
+    configureTimerB();
 
-    ADCCTL0 |= ADCENC;                                  // Enable conversion
+    // Disable the GPIO power-on default high-impedance mode
+    PM5CTL0 &= ~LOCKLPM5;
 
-    __bis_SR_register(LPM3_bits | GIE);                 // Enter LPM3 w/ interrupts
-    __no_operation();                                   // Only for debugger
-}
+    // Enable global interrupts
+    __bis_SR_register(GIE);
 
-// ADC interrupt service routine
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector=ADC_VECTOR
-__interrupt void ADC_ISR(void)
-#elif defined(__GNUC__)
-void __attribute__((interrupt(ADC_VECTOR))) ADC_ISR(void)
-#else
-#error Compiler not supported!
-#endif
-{
-    if (ADCIV == ADCIV_ADCOVIFG) {
-        // ADC overflow
-    }
-    else if (ADCIV == ADCIV_ADCTOVIFG) {
-        // ADC conversion time overflow
-    }
-    else if (ADCIV == ADCIV_ADCHIIFG) {                // ADCHI; A2 > 2.4V
-        ADCIFG &= ~ADCHIIFG;                           // Clear interrupt flag
-        pwm_direction = 1;                             // Start increasing PWM duty cycle
-    }
-    else if (ADCIV == ADCIV_ADCLOIFG) {                // ADCLO; A2 < 1.7V
-        ADCIFG &= ~ADCLOIFG;                           // Clear interrupt flag
-        pwm_direction = -1;                            // Start decreasing PWM duty cycle
-    }
-    else if (ADCIV == ADCIV_ADCINIFG) {                // ADCIN; 1.7V < A2 < 2.4V
-        ADCIFG &= ~ADCINIFG;                           // Clear interrupt flag
-        pwm_direction = 0;                             // Stop changing PWM duty cycle
-    }
-}
+    int thresholdCrossed = 0;
 
-// Timer1 B0 interrupt service routine
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector=TIMER1_B0_VECTOR
-__interrupt void TIMER1_B0_ISR(void)
-#elif defined(__GNUC__)
-void __attribute__((interrupt(TIMER1_B0_VECTOR))) TIMER1_B0_ISR(void)
-#else
-#error Compiler not supported!
-#endif
-{
-    if (pwm_direction != 0) {
-        pwm_duty_cycle += pwm_direction * 10;          // Adjust the duty cycle
-        if (pwm_duty_cycle > 1023) {                   // Clamp the duty cycle within 0-1023
-            pwm_duty_cycle = 1023;
+    while (1) {
+        ADCCTL0 |= ADCENC | ADCSC;                  // Enable and start conversion
+        while (ADCCTL1 & ADCBUSY);                  // Wait for conversion to complete
+
+        if (ADCMEM0 >= THRESHOLD_VOLTAGE) {         // Check if input signal is above 2V
+            if (!thresholdCrossed) {
+                P3OUT |= BIT0;                      // Turn on LED on P3.0
+
+                thresholdCrossed = 1;               // Set the flag to indicate threshold was crossed
+            }
+        } else {
+            thresholdCrossed = 0;                   // Reset the flag when the signal falls below the threshold
+
+            P3OUT &= ~BIT0;                         // Turn off LED on P3.0
         }
-        else if (pwm_duty_cycle < 0) {
-            pwm_duty_cycle = 0;
-        }
-        TB0CCR1 = pwm_duty_cycle;                      // Update PWM duty cycle
     }
+
+    return 0;
 }
