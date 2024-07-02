@@ -6,8 +6,8 @@ Dieses Projekt verwendet den MSP430FR2355 Mikrocontroller, um ADC-Werte von eine
 Hardwareanforderungen
 MSP430FR2355 Mikrocontroller
 Sensor (z.B. Pulssensor) angeschlossen an P1.2
-Rote LED angeschlossen an P3.0 mit Vorwiderstand (220 Ohm)
-Blaue LED angeschlossen an P3.2 mit Vorwiderstand (220 Ohm)
+Rote LED angeschlossen an P3.0 mit Vorwiderstand (100 Ohm) und VCC 3.3V
+Blaue LED angeschlossen an P3.2 mit Vorwiderstand (140 Ohm) und VCC 5V
 Piezo-Lautsprecher angeschlossen an P3.4
 Schaltplan
 
