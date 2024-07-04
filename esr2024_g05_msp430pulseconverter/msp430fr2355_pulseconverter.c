@@ -27,7 +27,7 @@
 //            |                 |
 //            -------------------
 //***************************************************************************************
- 
+
 #include <msp430.h>
  
 #define THRESHOLD_VOLTAGE   3000  // ~2V (3000/4095 * 3.3V reference = 2V)
@@ -37,6 +37,18 @@ void configureGPIO(void) {
     // Configure Red LED (P3.0) as output
     P3DIR |= BIT0;     // Set P3.0 output direction
     P3OUT &= ~BIT0;    // Initialize P3.0 to off
+ 
+    // Configure Blue LED (P3.2) as output
+    P3DIR |= BIT2;     // Set P3.2 output direction
+    P3OUT |= BIT2;     // Initialize P3.2 to on
+ 
+    // Configure Piezo Speaker (P3.4) as output
+    P3DIR |= PIEZO_PIN; // Set P3.4 output direction
+    P3OUT &= ~PIEZO_PIN; // Initialize P3.4 to off
+ 
+    // Configure ADC input (P1.2)
+    P1SEL0 |= BIT2;    // Set P1.2 for ADC function
+    P1SEL1 |= BIT2;
 }
  
 void configureADC(void) {
@@ -98,3 +110,4 @@ int main(void) {
         }
     }
 }
+hat Kontextmenü
